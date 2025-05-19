@@ -58,3 +58,12 @@ Réponds naturellement, en continuant cette discussion comme une personne réell
 # Lancer le serveur
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=3000)
+
+@app.route('/users', methods=['GET'])
+def get_users():
+    docs = db.collection("conversations").stream()
+    users = []
+    for doc in docs:
+        data = doc.to_dict()
+        users.append({"id": doc.id, "history": data.get("history", "")})
+    return jsonify({"users": users})
