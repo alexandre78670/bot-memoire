@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from openai import OpenAI
+from flask import Flask, request
 import firebase_admin
 from firebase_admin import credentials, firestore
 import os
@@ -67,3 +68,30 @@ def get_users():
         data = doc.to_dict()
         users.append({"id": doc.id, "history": data.get("history", "")})
     return jsonify({"users": users})
+
+
+app = Flask(__name__)
+
+VERIFY_TOKEN = "mon_token_secret_instagram"
+
+@app.route("/webhook", methods=["GET"])
+def verify():
+    mode = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        print("Webhook vérifié !")
+        return challenge, 200
+    else:
+        return "Erreur de vérification", 403
+
+@app.route("/webhook", methods=["POST"])
+def handle_message():
+    data = request.get_json()
+    print("Données reçues :", data)
+    # (Ici, tu peux ajouter une réponse automatique si besoin)
+    return "OK", 200
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=3000)
