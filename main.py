@@ -72,7 +72,7 @@ def get_users():
 
 app = Flask(__name__)
 
-VERIFY_TOKEN = "mon_token_secret_instagram"
+VERIFY_TOKEN = "alexandretoken123"
 
 @app.route("/webhook", methods=["GET"])
 def verify():
