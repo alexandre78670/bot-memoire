@@ -52,6 +52,6 @@ Réponds naturellement comme une vraie personne.
 # Lancement
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    app = ApplicationBuilder().token("AAEKdVO2U63RPr8oEiRv5yeALa4pW3DfXNs").build()
+    app = ApplicationBuilder().token("7830476680:AAEKdVO2U63RPr8oEiRv5yeALa4pW3DfXNs").build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling()
