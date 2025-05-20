@@ -1,0 +1,56 @@
+import logging
+import time
+import openai
+import firebase_admin
+from firebase_admin import credentials, firestore
+from telegram import Update
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+
+# Initialisation Firebase
+cred = credentials.Certificate("firebase_key.json")
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
+# OpenAI
+openai.api_key = os.getenv("OPENAI_API_KEY")  # Remplace par os.getenv("OPENAI_API_KEY") si tu préfères
+
+# Répondre avec mémoire
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    user_message = update.message.text
+
+    # Récupère l’historique
+    doc_ref = db.collection("conversations").document(user_id)
+    doc = doc_ref.get()
+    history = doc.to_dict()["history"] if doc.exists else ""
+
+    prompt = f"""
+Voici la conversation avec {update.effective_user.first_name} :
+
+{history}
+
+Nouveau message de l'utilisateur : {user_message}
+Réponds naturellement comme une vraie personne.
+"""
+
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    reply = response.choices[0].message.content.strip()
+
+    # Mise à jour de l’historique
+    new_history = history + f"\n{user_message}\nBot : {reply}"
+    doc_ref.set({"history": new_history})
+
+    # Simule délai d’écriture
+    time.sleep(2 + len(reply) / 30)
+
+    await update.message.reply_text(reply)
+
+# Lancement
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+    app = ApplicationBuilder().token("TON_TOKEN_TELEGRAM").build()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.run_polling()
