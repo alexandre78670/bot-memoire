@@ -1,97 +1,65 @@
-from flask import Flask, request, jsonify
-from openai import OpenAI
-from flask import Flask, request
+import os
+import json
+import time
+import openai
 import firebase_admin
 from firebase_admin import credentials, firestore
-import os
+from telegram import Update
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 
-# Initialiser Flask
-app = Flask(__name__)
-
-# Clé API OpenAI
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-# Initialiser Firebase
-cred = credentials.Certificate("firebase_key.json")
+# Firebase setup
+cred = credentials.Certificate(json.loads(os.getenv("GOOGLE_CREDENTIALS")))
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-@app.route('/message', methods=['POST'])
-def chat():
-    data = request.get_json()
-    user_id = data.get("user_id")
-    message = data.get("message")
+# OpenAI
+openai.api_key = os.getenv("OPENAI_API_KEY")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-    if not user_id or not message:
-        return jsonify({"error": "Champs manquants"}), 400
-
-    # Récupérer l'historique utilisateur
+# Fonction de réponse IA
+async def respond(user_id: str, message: str) -> str:
     doc_ref = db.collection("conversations").document(user_id)
     doc = doc_ref.get()
     history = doc.to_dict()["history"] if doc.exists else ""
 
     prompt = f"""
-Voici la conversation jusqu'à présent avec {user_id} :
-
+Tu es une fille réelle qui discute naturellement avec la personne.
+Historique :
 {history}
 
-Nouveau message de l'utilisateur : {message}
-
-Réponds naturellement, en continuant cette discussion comme une personne réelle.
+Nouveau message : {message}
+Réponds de façon humaine et naturelle.
 """
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        reply = response.choices[0].message.content.strip()
-    except Exception as e:
-        return jsonify({"error": "Erreur lors de l'appel à OpenAI", "details": str(e)}), 500
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": prompt}]
+    )
 
-    # Sauvegarder l'historique mis à jour
-    new_history = history + f"\nUtilisateur : {message}\nBot : {reply}"
-    doc_ref.set({"history": new_history})
+    reply = response.choices[0].message.content.strip()
+    doc_ref.set({"history": history + f"\n👤: {message}\n🤖: {reply}"})
+    return reply
 
-    return jsonify({"reply": reply})
+# Commande /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Salut ! Tu peux m’écrire ici quand tu veux 😘")
 
+# Réponses normales
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    message = update.message.text
+    reply = await respond(user_id, message)
 
-# Lancer le serveur
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=3000)
+    # Simule un temps d’écriture
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    time.sleep(2)  # tu peux augmenter jusqu'à 5 secondes
 
-@app.route('/users', methods=['GET'])
-def get_users():
-    docs = db.collection("conversations").stream()
-    users = []
-    for doc in docs:
-        data = doc.to_dict()
-        users.append({"id": doc.id, "history": data.get("history", "")})
-    return jsonify({"users": users})
+    await update.message.reply_text(reply)
 
+# Lancer le bot
+app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-app = Flask(__name__)
-
-VERIFY_TOKEN = "alexandretoken123"
-
-@app.route("/webhook", methods=["GET"])
-def verify():
-    mode = request.args.get("hub.mode")
-    token = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge")
-
-    if mode == "subscribe" and token == VERIFY_TOKEN:
-        print("Webhook vérifié !")
-        return challenge, 200
-    else:
-        return "Erreur de vérification", 403
-
-@app.route("/webhook", methods=["POST"])
-def handle_message():
-    data = request.get_json()
-    print("Données reçues :", data)
-    # (Ici, tu peux ajouter une réponse automatique si besoin)
-    return "OK", 200
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3000)
+print("Bot started polling…")
+app.run_polling()
