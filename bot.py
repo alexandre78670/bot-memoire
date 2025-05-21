@@ -45,12 +45,13 @@ async def handle(event):
     memory["messages"].append({"role": "user", "content": message})
 
     # 🤖 Requête à OpenAI
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=memory["messages"]
-    )
-
-    reply = response["choices"][0]["message"]["content"]
+    client_ai = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+...
+response = client_ai.chat.completions.create(
+    model="gpt-3.5-turbo",
+    messages=history["messages"]
+)
+reply = response.choices[0].message.content
     memory["messages"].append({"role": "assistant", "content": reply})
 
     # 💾 Sauvegarde la mémoire
