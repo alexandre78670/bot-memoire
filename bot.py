@@ -1,57 +1,53 @@
-import logging
-import time
-import openai
-import os
+from telethon import TelegramClient, events
 import firebase_admin
 from firebase_admin import credentials, firestore
-from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+import openai
+import os
+import asyncio
+import time
 
-# Initialisation Firebase
+# Clés d’environnement depuis Render
+api_id = int(os.environ.get("TELEGRAM_API_ID"))
+api_hash = os.environ.get("TELEGRAM_API_HASH")
+session_name = "giulia"
+openai.api_key = os.environ.get("OPENAI_API_KEY")
+
+# Authentification Firebase
 cred = credentials.Certificate("firebase_key.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")  # Remplace par os.getenv("OPENAI_API_KEY") si tu préfères
+client = TelegramClient(session_name, api_id, api_hash)
 
-# Répondre avec mémoire
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    user_message = update.message.text
+@client.on(events.NewMessage(incoming=True))
+async def handle_message(event):
+    user_id = str(event.sender_id)
+    user_input = event.raw_text
 
-    # Récupère l’historique
-    doc_ref = db.collection("conversations").document(user_id)
+    # Récupérer l’historique de conversation
+    doc_ref = db.collection("users").document(user_id)
     doc = doc_ref.get()
-    history = doc.to_dict()["history"] if doc.exists else ""
+    if doc.exists:
+        history = doc.to_dict().get("history", [])
+    else:
+        history = []
 
-    prompt = f"""
-Voici la conversation avec {update.effective_user.first_name} :
+    history.append({"role": "user", "content": user_input})
 
-{history}
-
-Nouveau message de l'utilisateur : {user_message}
-Réponds naturellement comme une vraie personne.
-"""
-
+    # Appel à OpenAI
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": prompt}]
+        messages=history
     )
-    reply = response.choices[0].message.content.strip()
+    reply = response["choices"][0]["message"]["content"]
 
-    # Mise à jour de l’historique
-    new_history = history + f"\n{user_message}\nBot : {reply}"
-    doc_ref.set({"history": new_history})
+    history.append({"role": "assistant", "content": reply})
+    doc_ref.set({"history": history})
 
-    # Simule délai d’écriture
-    time.sleep(2 + len(reply) / 30)
+    # Délai simulé (comme un humain)
+    await asyncio.sleep(min(len(reply) * 0.02, 3.5))
+    await event.respond(reply)
 
-    await update.message.reply_text(reply)
-
-# Lancement
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    app = ApplicationBuilder().token("7830476680:AAEKdVO2U63RPr8oEiRv5yeALa4pW3DfXNs").build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.run_polling()
+print("Bot IA Telegram prêt.")
+client.start()
+client.run_until_disconnected()
