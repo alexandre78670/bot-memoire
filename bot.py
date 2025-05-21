@@ -1,68 +1,66 @@
 import os
 import base64
+import json
 import asyncio
 from telethon import TelegramClient, events
 import openai
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# 🔐 Recréer le fichier session
+# 🔐 Recréer le fichier .session
 session_data = os.environ.get("giulia.session")
 if session_data:
     with open("giulia.session", "wb") as f:
         f.write(base64.b64decode(session_data))
 
-# 📲 Config API
+# 🔑 Config API
 api_id = int(os.environ["TELEGRAM_API_ID"])
 api_hash = os.environ["TELEGRAM_API_HASH"]
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
-# 🌩 Connexion Firebase
-cred = credentials.Certificate(eval(os.environ["GOOGLE_CREDENTIALS"]))
+# 🔥 Auth Firebase (version base64-safe)
+cred_data = base64.b64decode(os.environ["GOOGLE_CREDENTIALS"])
+with open("firebase_key.json", "wb") as f:
+    f.write(cred_data)
+
+cred = credentials.Certificate("firebase_key.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# 🚀 Client Telegram
+# 🚀 Client Telegram avec session locale
 client = TelegramClient("giulia.session", api_id, api_hash)
 
 @client.on(events.NewMessage)
-async def handle_message(event):
+async def handle(event):
     sender = await event.get_sender()
     uid = str(sender.id)
-    text = event.message.message
+    message = event.message.message
 
-    print(f"📨 Message de {uid}: {text}")
+    print(f"📩 Message reçu de {uid} : {message}")
 
-    # 💾 Mémoire
+    # 🔄 Récupère la mémoire de l'utilisateur
     ref = db.collection("conversations").document(uid)
-    history = ref.get().to_dict() or {"messages": []}
-    history["messages"].append({"role": "user", "content": text})
+    memory = ref.get().to_dict() or {"messages": []}
 
+    memory["messages"].append({"role": "user", "content": message})
+
+    # 🤖 Requête à OpenAI
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
-        messages=history["messages"]
+        messages=memory["messages"]
     )
 
     reply = response["choices"][0]["message"]["content"]
-    history["messages"].append({"role": "assistant", "content": reply})
-    ref.set(history)
+    memory["messages"].append({"role": "assistant", "content": reply})
 
-    await asyncio.sleep(min(len(reply) * 0.04, 5))
+    # 💾 Sauvegarde la mémoire
+    ref.set(memory)
+
+    # 🕐 Simule une frappe humaine
+    await asyncio.sleep(min(len(reply) * 0.04, 4))
+
     await event.reply(reply)
 
-# ✅ Démarrage sécurisé
-async def main():
-    connected = await client.connect()
-    if not connected:
-        print("❌ Connexion échouée.")
-        return
-
-    if not await client.is_user_authorized():
-        print("❌ Session Telegram invalide ou absente. Vérifie ton fichier `.session`.")
-        return
-
-    print("✅ Bot connecté. En attente de messages...")
-    await client.run_until_disconnected()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+with client:
+    print("✅ Bot IA prêt")
+    client.run_until_disconnected()
