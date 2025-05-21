@@ -1,5 +1,6 @@
 import os
 import base64
+import asyncio
 from telethon import TelegramClient, events
 import openai
 import firebase_admin
@@ -21,12 +22,10 @@ cred = credentials.Certificate(eval(os.environ["GOOGLE_CREDENTIALS"]))
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# 🚀 Lancer le client Telegram
+# 🚀 Client Telegram
 client = TelegramClient("giulia.session", api_id, api_hash)
 
 # ✍️ Ajouter un délai pour simuler un humain
-import asyncio
-
 @client.on(events.NewMessage)
 async def handle_message(event):
     sender = await event.get_sender()
@@ -53,9 +52,15 @@ async def handle_message(event):
 
     # 🕐 Simule une frappe humaine
     await asyncio.sleep(min(len(reply) * 0.04, 5))
-
     await event.reply(reply)
 
-with client:
-    print("✅ Bot IA Telegram prêt !")
-    client.run_until_disconnected()
+# ✅ Lancement asynchrone
+async def run():
+    if not await client.connect():
+        print("❌ Échec de connexion à Telegram.")
+        return
+    print("✅ Bot IA Telegram connecté et en écoute.")
+    await client.run_until_disconnected()
+
+if __name__ == "__main__":
+    asyncio.run(run())
