@@ -1,8 +1,8 @@
 import os
 import base64
 import json
-import random
 import asyncio
+import random
 from telethon import TelegramClient, events
 import openai
 import firebase_admin
@@ -19,17 +19,28 @@ api_id = int(os.environ["TELEGRAM_API_ID"])
 api_hash = os.environ["TELEGRAM_API_HASH"])
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
-# 🔥 Auth Firebase (version base64-safe)
+# 🔥 Auth Firebase
 cred_data = base64.b64decode(os.environ["GOOGLE_CREDENTIALS"])
 with open("firebase_key.json", "wb") as f:
     f.write(cred_data)
-
 cred = credentials.Certificate("firebase_key.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# 🚀 Client Telegram avec session locale
+# 🚀 Client Telegram
 client = TelegramClient("giulia.session", api_id, api_hash)
+
+# 🎭 Prompt de base
+BASE_PROMPT = [
+    {"role": "system", "content": "Tu es une jeune femme douce, tu as 26 ans et tu es joueuse et curieuse. Tu discutes comme une vraie personne avec les abonnés Instagram. Tu réponds naturellement à tout message. Si la personne semble intéressée, tu peux lui proposer de visiter ton Patreon ou ton fanvue, mais tu peux aussi lui proposer de lui vendre des videos ou photo. Et tu écris et parle comme les jeunes donc sans forcement mettre la ponctuation sauf si besoin."}
+]
+
+# 📁 Dossiers d’images
+FOLDER_TEASER_NUDES = "images/teasers/nudes"
+FOLDER_TEASER_FEET = "images/teasers/pieds"
+FOLDER_VIP_NUDES = "images/vip/nudes"
+FOLDER_VIP_FEET = "images/vip/pieds"
+PAYPAL_LINK = "https://paypal.me/giuliaMrt865?country.x=FR&locale.x=fr_FR"
 
 @client.on(events.NewMessage)
 async def handle(event):
@@ -39,70 +50,50 @@ async def handle(event):
 
     print(f"📩 Message reçu de {uid} : {message}")
 
-    # 🔄 Récupère la mémoire de l'utilisateur
+    # 🔄 Rôle utilisateur
+    ref_user = db.collection("users").document(uid)
+    user_data = ref_user.get().to_dict() or {"role": "new", "preference": "nudes"}
+
+    # 🔄 Historique conversation
     ref = db.collection("conversations").document(uid)
-    doc = ref.get().to_dict() or {"messages": []}
+    memory = ref.get().to_dict() or {"messages": BASE_PROMPT.copy()}
 
-    # 📌 Ajouter le prompt système si premier message
-    if not doc["messages"]:
-        doc["messages"].append({
-            "role": "system",
-            "content": "Tu es Giulia, une femme sensuelle, douce et séduisante. Tu écris avec naturel, chaleur et un soupçon de mystère. Tu parles comme une vraie personne."
-        })
-
-    doc["messages"].append({"role": "user", "content": message})
-
-    # 🎯 Gérer les préférences utilisateur
-    if "pied" in message.lower():
-        ref.set({"preferences": "pieds"}, merge=True)
-    elif "nude" in message.lower() or "corps" in message.lower():
-        ref.set({"preferences": "nudes"}, merge=True)
-
-    # 🔥 Si discussion chaude, envoi teaser
-    sexy_keywords = ["photo", "chaud", "envie", "te voir", "montre-moi", "j’ai envie", "excite", "nue"]
-    if any(kw in message.lower() for kw in sexy_keywords):
-        role = doc.get("role", "new")
-        pref = doc.get("preferences", "mix")
-        seen = doc.get("seen_teasers", [])
-
-        if role != "vip":
-            folder = f"images/teasers/{pref}"
-            available = [f for f in os.listdir(folder) if f not in seen]
-            if available:
-                filename = random.choice(available)
-                seen.append(filename)
-                ref.set({"seen_teasers": seen}, merge=True)
-                await event.respond(file=os.path.join(folder, filename))
-            else:
-                await event.respond("Si tu veux d'autres photos... 🫦 Voici mon PayPal : https://paypal.me/tonlien")
-            return
-        else:
-            folder = f"images/vip/{pref}"
-            available = os.listdir(folder)
-            if available:
-                filename = random.choice(available)
-                await event.respond(file=os.path.join(folder, filename))
-                return
-
-    # 🤖 Requête à OpenAI (nouvelle version API 1.0)
-    from openai import OpenAI
-    client_ai = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-
-    response = client_ai.chat.completions.create(
+    memory["messages"].append({"role": "user", "content": message})
+    response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
-        messages=doc["messages"]
+        messages=memory["messages"]
     )
+    reply = response["choices"][0]["message"]["content"]
+    memory["messages"].append({"role": "assistant", "content": reply})
 
-    reply = response.choices[0].message.content
-    doc["messages"].append({"role": "assistant", "content": reply})
+    # 💾 Sauvegarde
+    ref.set(memory)
+    ref_user.set(user_data)
 
-    # 💾 Sauvegarde la mémoire
-    ref.set(doc)
+    # 🖼 Envoi image si flirt détecté
+    flirt_keywords = ["chaud", "t’as des photos", "t’es sexy", "montre", "envie", "excité", "tu m’excites"]
+    flirt_detected = any(word in message.lower() for word in flirt_keywords)
 
-    # 🕐 Simule une frappe humaine
+    if flirt_detected and user_data["role"] != "vip":
+        folder = FOLDER_TEASER_FEET if user_data["preference"] == "feet" else FOLDER_TEASER_NUDES
+        photos = [f for f in os.listdir(folder) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        sent = db.collection("sent_photos").document(uid).get().to_dict() or {"photos": []}
+
+        to_send = [p for p in photos if p not in sent["photos"]]
+        if to_send:
+            chosen = random.choice(to_send)
+            path = os.path.join(folder, chosen)
+            await client.send_file(event.chat_id, path)
+            sent["photos"].append(chosen)
+            db.collection("sent_photos").document(uid).set(sent)
+        else:
+            await client.send_message(event.chat_id, "Si tu veux plus de photo ou de video je t'envoie mon paypal c'est 30 euros pour avoir acces a mon groupe télegrame :" + PAYPAL_LINK)
+
+    # 🕐 Simule frappe humaine
     await asyncio.sleep(min(len(reply) * 0.04, 4))
 
-    await event.respond(reply)
+    # 🔄 Répond sans reply direct
+    await client.send_message(event.chat_id, reply)
 
 with client:
     print("✅ Bot IA prêt")
