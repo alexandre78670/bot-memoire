@@ -1,65 +1,61 @@
 import os
-import json
-import time
+import base64
+from telethon import TelegramClient, events
 import openai
 import firebase_admin
 from firebase_admin import credentials, firestore
-from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 
-# Firebase setup
-cred = credentials.Certificate(json.loads(os.getenv("GOOGLE_CREDENTIALS")))
+# 🔐 Recréer le fichier session
+session_data = os.environ.get("giulia.session")
+if session_data:
+    with open("giulia.session", "wb") as f:
+        f.write(base64.b64decode(session_data))
+
+# 📲 Config API
+api_id = int(os.environ["TELEGRAM_API_ID"])
+api_hash = os.environ["TELEGRAM_API_HASH"]
+openai.api_key = os.environ["OPENAI_API_KEY"]
+
+# 🌩 Connexion Firestore
+cred = credentials.Certificate(eval(os.environ["GOOGLE_CREDENTIALS"]))
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+# 🚀 Lancer le client Telegram
+client = TelegramClient("giulia.session", api_id, api_hash)
 
-# Fonction de réponse IA
-async def respond(user_id: str, message: str) -> str:
-    doc_ref = db.collection("conversations").document(user_id)
-    doc = doc_ref.get()
-    history = doc.to_dict()["history"] if doc.exists else ""
+# ✍️ Ajouter un délai pour simuler un humain
+import asyncio
 
-    prompt = f"""
-Tu es une fille réelle qui discute naturellement avec la personne.
-Historique :
-{history}
+@client.on(events.NewMessage)
+async def handle_message(event):
+    sender = await event.get_sender()
+    uid = str(sender.id)
+    text = event.message.message
 
-Nouveau message : {message}
-Réponds de façon humaine et naturelle.
-"""
+    print(f"📨 Nouveau message de {uid}: {text}")
 
+    # 🔁 Récupère mémoire existante
+    ref = db.collection("conversations").document(uid)
+    history = ref.get().to_dict() or {"messages": []}
+
+    history["messages"].append({"role": "user", "content": text})
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": prompt}]
+        messages=history["messages"]
     )
 
-    reply = response.choices[0].message.content.strip()
-    doc_ref.set({"history": history + f"\n👤: {message}\n🤖: {reply}"})
-    return reply
+    reply = response["choices"][0]["message"]["content"]
+    history["messages"].append({"role": "assistant", "content": reply})
 
-# Commande /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Salut ! Tu peux m’écrire ici quand tu veux 😘")
+    # 💾 Sauvegarde mémoire
+    ref.set(history)
 
-# Réponses normales
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    message = update.message.text
-    reply = await respond(user_id, message)
+    # 🕐 Simule une frappe humaine
+    await asyncio.sleep(min(len(reply) * 0.04, 5))
 
-    # Simule un temps d’écriture
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    time.sleep(2)  # tu peux augmenter jusqu'à 5 secondes
+    await event.reply(reply)
 
-    await update.message.reply_text(reply)
-
-# Lancer le bot
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-print("Bot started polling…")
-app.run_polling()
+with client:
+    print("✅ Bot IA Telegram prêt !")
+    client.run_until_disconnected()
