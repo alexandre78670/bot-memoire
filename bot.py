@@ -5,7 +5,7 @@ import asyncio
 import random
 import traceback
 from telethon import TelegramClient, events
-import openai
+from openai import OpenAI
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -15,13 +15,12 @@ if session_data:
     with open("giulia.session", "wb") as f:
         f.write(base64.b64decode(session_data))
 
-# 🔑 Clés d'API
+# 🔑 API Keys
 api_id = int(os.environ["TELEGRAM_API_ID"])
 api_hash = os.environ["TELEGRAM_API_HASH"]
-openai.api_key = os.environ["OPENAI_API_KEY"]
 vip_channel_url = os.environ.get("TELEGRAM_VIP_CHANNEL_URL", "https://t.me/+buh2GaGjwXIwMTRk")
 
-# 🔥 Firestore (depuis GOOGLE_CREDENTIALS encodée)
+# 🔥 Firebase
 cred_data = base64.b64decode(os.environ["GOOGLE_CREDENTIALS"])
 with open("firebase_key.json", "wb") as f:
     f.write(cred_data)
@@ -29,10 +28,11 @@ cred = credentials.Certificate("firebase_key.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# 🤖 Client Telegram
+# 🤖 Clients
+openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 client = TelegramClient("giulia.session", api_id, api_hash)
 
-# 🎯 Prompt IA
+# 📌 Prompt IA
 SYSTEM_PROMPT = {
     "role": "system",
     "content": (
@@ -49,11 +49,12 @@ SYSTEM_PROMPT = {
     )
 }
 
-# 📸 Dossiers d’images
+# 📁 Mots-clés
 user_sent_teasers = {}
 NUDE_KEYWORDS = ["corps", "nue", "nudes", "seins", "torse", "sexy"]
 FOOT_KEYWORDS = ["pied", "pieds", "orteils", "foot", "toes"]
 
+# 📩 Réception
 @client.on(events.NewMessage)
 async def handle(event):
     sender = await event.get_sender()
@@ -67,7 +68,6 @@ async def handle(event):
     data = ref.get().to_dict() or {"messages": [], "role": "user"}
     role = data.get("role", "user")
 
-    # 🔐 VIP : Lien canal envoyé une seule fois, puis silence
     if role == "vip" and not data.get("link_sent"):
         await asyncio.sleep(1)
         await event.respond(f"💋 Merci pour ton soutien ! Voici le lien vers mon canal privé : {vip_channel_url}")
@@ -78,11 +78,11 @@ async def handle(event):
     if role == "vip" and data.get("link_sent"):
         return
 
-    # 💬 Historique mémoire limitée
+    # 💬 Historique mémoire
     data["messages"].append({"role": "user", "content": msg})
     data["messages"] = data["messages"][-10:]
 
-    # 📸 Image teaser une seule fois
+    # 📸 Envoi teaser
     sent_images = user_sent_teasers.get(uid, set())
     teaser_folder = None
     if any(k in msg for k in FOOT_KEYWORDS):
@@ -101,30 +101,26 @@ async def handle(event):
         except Exception as e:
             print("Erreur envoi image teaser:", e)
 
-    # 🤖 Réponse IA
+    # 🤖 Appel OpenAI
     try:
-        if not any(m["role"] == "assistant" for m in data["messages"]):
-            data["messages"].insert(0, {"role": "assistant", "content": "coucou 😊"})
-
-        completion = openai.ChatCompletion.create(
+        response = openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[SYSTEM_PROMPT] + data["messages"]
         )
-        reply = completion.choices[0].message.content.strip()
+        reply = response.choices[0].message.content.strip()
     except Exception as e:
         print("Erreur GPT:", e)
         traceback.print_exc()
         reply = "Oups j’ai eu un bug, tu peux répéter ?"
 
-    # 📝 Sauvegarde de la réponse
+    # 💾 Sauvegarde
     data["messages"].append({"role": "assistant", "content": reply})
     ref.set(data)
 
-    # ⏳ Simulation frappe humaine
     await asyncio.sleep(min(len(reply) * 0.04, 4))
     await event.respond(reply)
 
-# 🚀 Démarrage bot
+# 🚀 Démarrage
 with client:
     print("✅ Bot Telegram prêt !")
     client.run_until_disconnected()
