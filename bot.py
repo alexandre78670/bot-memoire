@@ -1,3 +1,4 @@
+
 import os
 import base64
 import json
@@ -48,7 +49,6 @@ SYSTEM_PROMPT = {
     )
 }
 
-
 # 📁 Mots-clés et images déjà envoyées
 user_sent_teasers = {}
 NUDE_KEYWORDS = ["corps", "nue", "nudes", "seins", "torse", "sexy"]
@@ -59,7 +59,10 @@ FOOT_KEYWORDS = ["pied", "pieds", "orteils", "foot", "toes"]
 async def handle(event):
     sender = await event.get_sender()
     uid = str(sender.id)
-    msg = event.message.message.lower()
+    msg = event.message.message.strip().lower()
+
+    if not msg:
+        return
 
     ref = db.collection("conversations").document(uid)
     data = ref.get().to_dict() or {"messages": [], "role": "user"}
@@ -74,10 +77,11 @@ async def handle(event):
         return
 
     if role == "vip" and data.get("link_sent"):
-        return  # ⛔ Stop toute discussion après VIP
+        return
 
-    # 💬 Historique
+    # 💬 Historique (on limite à 10 derniers échanges pour éviter surcharge)
     data["messages"].append({"role": "user", "content": msg})
+    data["messages"] = data["messages"][-10:]
 
     # 📸 Teasing image
     sent_images = user_sent_teasers.get(uid, set())
@@ -98,7 +102,6 @@ async def handle(event):
         except Exception as e:
             print("Erreur envoi image teaser:", e)
 
-    # 🤖 Appel GPT
     try:
         completion = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
@@ -106,23 +109,14 @@ async def handle(event):
         )
         reply = completion.choices[0].message.content.strip()
     except Exception as e:
-        reply = "Désolée je suis un peu perdue là, tu peux répéter ?"
+        reply = " j'ai pas comrpis ce que tu as dit"
         print("Erreur GPT:", e)
 
     data["messages"].append({"role": "assistant", "content": reply})
     ref.set(data)
 
-    # 🕐 Simulation d’un vrai humain
     await asyncio.sleep(min(len(reply) * 0.04, 4))
     await event.respond(reply)
-
-# ✅ Lancement du bot
-async def main():
-    if not await client.is_user_authorized():
-        print("⚠️ Session invalide : connecte-toi en local d’abord.")
-        return
-    print("✅ Bot IA prêt !")
-    await client.run_until_disconnected()
 
 # ✅ Lancement du bot
 with client:
