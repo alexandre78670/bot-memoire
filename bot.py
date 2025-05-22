@@ -47,7 +47,7 @@ SYSTEM_PROMPT = {
         "Tu évites les réponses automatiques ou trop parfaites. Réponds avec fluidité, comme si tu écrivais depuis ton téléphone."
     )
 }
-}
+
 
 # 📁 Mots-clés et images déjà envoyées
 user_sent_teasers = {}
