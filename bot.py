@@ -19,7 +19,7 @@ if session_data:
 api_id = int(os.environ["TELEGRAM_API_ID"])
 api_hash = os.environ["TELEGRAM_API_HASH"]
 openai_api_key = os.environ["OPENAI_API_KEY"]
-vip_channel_url = os.environ.get("TELEGRAM_VIP_CHANNEL_URL", "https://t.me/ton_channel")
+vip_channel_url = os.environ.get("TELEGRAM_VIP_CHANNEL_URL", "https://t.me/+buh2GaGjwXIwMTRk")
 
 # 🔥 Firebase
 cred_data = base64.b64decode(os.environ["GOOGLE_CREDENTIALS"])
