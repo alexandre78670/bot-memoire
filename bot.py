@@ -119,5 +119,7 @@ async def main():
     print("✅ Bot IA prêt !")
     await client.run_until_disconnected()
 
-client.connect()
-client.loop.run_until_complete(main())
+# ✅ Lancement du bot
+with client:
+    print("✅ Bot Telegram prêt !")
+    client.run_until_disconnected()
