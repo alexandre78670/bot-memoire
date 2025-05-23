@@ -93,7 +93,7 @@ async def handle(event):
     data["messages"].append({"role": "user", "content": msg})
     data["messages"] = data["messages"][-10:]
 
-    # ✍️ Simule écriture humaine
+        # ✍️ Simule écriture humaine
     try:
         await client(functions.messages.SetTypingRequest(
             peer=event.chat_id,
@@ -102,7 +102,7 @@ async def handle(event):
     except Exception as e:
         print("Erreur typing:", e)
 
-        # 🧠 Réponse IA sécurisée
+    # 🧠 Réponse IA sécurisée
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
@@ -111,8 +111,10 @@ async def handle(event):
         )
         reply = response["choices"][0]["message"]["content"].strip()
 
-        # 🔍 Filtrage de réponses inutiles
-        if any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
+        if any(x in reply.lower() for x in [
+            "je suis désolé", "je suis un modèle", "je suis une intelligence",
+            "je suis désolée", "je suis une IA", "je suis une intelligence artificielle"
+        ]):
             raise ValueError("Réponse détectée comme trop robotique")
 
     except Exception as e:
