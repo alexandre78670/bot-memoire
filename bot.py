@@ -34,46 +34,43 @@ client = TelegramClient("giulia.session", api_id, api_hash)
 SYSTEM_PROMPT = {
     "role": "system",
     "content": (
-        "Tu t'appelles Giulia Moretti, tu as 26 ans, tu es douce et joueuse, et tu habites à Paris dans le 6eme arrondissement. "
-        "Tu parles comme une vraie fille jeune, avec des abréviations, sans ponctuation parfaite, parfois avec quelques emojis. "
-        "Tu es séductrice, naturelle, curieuse. Quand on te demande des photos osées, tu chauffes un peu pour ensuite donner une photo teaser. "
-        "Tu mentionnes ton canal VIP réservé à ceux qui te soutiennent. "
-        "Si tu sens que l'utilisateur est prêt, tu proposes le lien PayPal (30€). "
-        "Après paiement (confirmé par admin), tu envoies le lien du canal Telegram et tu arrêtes de parler."
+        "Tu t'appelles Giulia Moretti, t'as 26 ans, t’es douce et joueuse et tu vis à Paris dans le 6eme 😘 "
+        "Tu parles comme une vraie meuf, style jeune, genre insta ou snap, sans ponctuation rigide et t’utilises quelques emojis de temps en temps. "
+        "T’es séduisante mais naturelle. Quand on te chauffe ou qu’on veut des photos, tu réponds avec malice, tu chauffes un peu, "
+        "et si la discussion devient chaude, tu peux lâcher UNE seule photo teasing. "
+        "Tu parles d’un canal privé réservé à tes VIP. Quand tu sens que l’utilisateur est bien chaud, tu proposes le lien PayPal à 30€. "
+        "Une fois payé (rôle VIP), tu donnes le lien du canal Telegram et tu parles plus après ça."
     )
 }
 
-user_sent_teasers = {}
+# 📁 Mots-clés
 NUDE_KEYWORDS = ["nude", "corps", "photo", "seins", "sexy"]
 FOOT_KEYWORDS = ["pieds", "pied", "foot", "orteils"]
-TRIGGER_KEYWORDS = NUDE_KEYWORDS + FOOT_KEYWORDS + ["lien", "abonnement", "payer", "pay", "VIP"]
+TRIGGER_KEYWORDS = NUDE_KEYWORDS + FOOT_KEYWORDS + ["lien", "abonnement", "payer", "pay", "vip"]
+user_sent_teasers = {}
 
 @client.on(events.NewMessage)
 async def handle(event):
     sender = await event.get_sender()
     uid = str(sender.id)
     msg = event.message.message.strip().lower()
-
     if not msg:
         return
 
     ref = db.collection("conversations").document(uid)
     data = ref.get().to_dict() or {"messages": [], "role": "user"}
     role = data.get("role", "user")
-    data["messages"].append({"role": "user", "content": msg})
-    data["messages"] = data["messages"][-10:]
 
-    # Envoi lien VIP
+    # 💎 VIP : envoi canal et fin
     if role == "vip" and not data.get("link_sent"):
         await event.respond(f"💋 Merci pour ton soutien ! Voilà le lien de mon canal VIP : {vip_channel_url}")
         data["link_sent"] = True
         ref.set(data)
         return
-
-    if role == "vip" and data.get("link_sent"):
+    if role == "vip":
         return
 
-    # Détection teaser
+    # 📸 Teasing image
     sent = user_sent_teasers.get(uid, set())
     folder = None
     if any(k in msg for k in FOOT_KEYWORDS):
@@ -90,7 +87,11 @@ async def handle(event):
                 sent.add(chosen)
                 user_sent_teasers[uid] = sent
         except Exception as e:
-            print("Erreur envoi teaser:", e)
+            print("Erreur teaser:", e)
+
+    # 💬 Ajoute message et limite historique
+    data["messages"].append({"role": "user", "content": msg})
+    data["messages"] = data["messages"][-10:]
 
     # ✍️ Simule écriture humaine
     try:
@@ -101,31 +102,34 @@ async def handle(event):
     except Exception as e:
         print("Erreur typing:", e)
 
-    # 🤖 Réponse IA
+    # 🧠 Réponse IA sécurisée
     try:
         completion = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[SYSTEM_PROMPT] + data["messages"]
         )
-        reply = completion.choices[0].message.content.strip()
+        if completion.choices and completion.choices[0].message and completion.choices[0].message.content:
+            reply = completion.choices[0].message.content.strip()
+        else:
+            raise ValueError("Réponse vide")
     except Exception as e:
         reply = "euh jsp ce que t'as dit mdrr tu peux reformuler ? 😅"
         print("Erreur GPT:", e)
 
-    # 💸 Lien PayPal
+    # 💸 Si assez de trigger → PayPal
     if not data.get("paypal_sent"):
-        trigger_count = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
-        if trigger_count >= 2:
+        triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
+        if triggers >= 2:
             reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
             data["paypal_sent"] = True
 
     data["messages"].append({"role": "assistant", "content": reply})
     ref.set(data)
 
-    await asyncio.sleep(min(len(reply) * 0.05, 5))
+    await asyncio.sleep(min(len(reply) * 0.05, 6))  # réponse réaliste
     await event.respond(reply)
 
-# ✅ Lancement
+# 🚀 Start bot
 with client:
     print("✅ Bot Telegram prêt !")
     client.run_until_disconnected()
