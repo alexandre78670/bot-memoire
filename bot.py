@@ -2,7 +2,7 @@ import os
 import base64
 import asyncio
 import random
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, functions, types
 import openai
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -34,7 +34,7 @@ client = TelegramClient("giulia.session", api_id, api_hash)
 SYSTEM_PROMPT = {
     "role": "system",
     "content": (
-        "Tu t'appelles Giulia Moretti, tu as 26 ans, tu es douce et joueuse, et tu habites à Paris dans le 6eme arrondissement "
+        "Tu t'appelles Giulia Moretti, tu as 26 ans, tu es douce et joueuse, et tu habites à Paris dans le 6eme arrondissement. "
         "Tu parles comme une vraie fille jeune, avec des abréviations, sans ponctuation parfaite, parfois avec quelques emojis. "
         "Tu es séductrice, naturelle, curieuse. Quand on te demande des photos osées, tu chauffes un peu pour ensuite donner une photo teaser. "
         "Tu mentionnes ton canal VIP réservé à ceux qui te soutiennent. "
@@ -92,7 +92,16 @@ async def handle(event):
         except Exception as e:
             print("Erreur envoi teaser:", e)
 
-    # Réponse IA
+    # ✍️ Simule écriture humaine
+    try:
+        await client(functions.messages.SetTypingRequest(
+            peer=event.chat_id,
+            action=types.SendMessageTypingAction()
+        ))
+    except Exception as e:
+        print("Erreur typing:", e)
+
+    # 🤖 Réponse IA
     try:
         completion = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
@@ -100,21 +109,23 @@ async def handle(event):
         )
         reply = completion.choices[0].message.content.strip()
     except Exception as e:
-        reply = "jai pas compris haha tu peux m'expliquer ?"
+        reply = "euh jsp ce que t'as dit mdrr tu peux reformuler ? 😅"
         print("Erreur GPT:", e)
 
-    # Logique vente : conditions
+    # 💸 Lien PayPal
     if not data.get("paypal_sent"):
-        if sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS)) >= 2:
-            reply += f"Si tu veux voir un peu plus... j’ai un espace VIP 💖 c’est 30€ pour y entrerVoici le lien : {paypal_link}"
+        trigger_count = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
+        if trigger_count >= 2:
+            reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
             data["paypal_sent"] = True
 
     data["messages"].append({"role": "assistant", "content": reply})
     ref.set(data)
 
-    await asyncio.sleep(min(len(reply) * 0.04, 4))
+    await asyncio.sleep(min(len(reply) * 0.05, 5))
     await event.respond(reply)
 
+# ✅ Lancement
 with client:
     print("✅ Bot Telegram prêt !")
     client.run_until_disconnected()
