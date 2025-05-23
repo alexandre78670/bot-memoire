@@ -102,19 +102,22 @@ async def handle(event):
     except Exception as e:
         print("Erreur typing:", e)
 
-    # 🧠 Réponse IA sécurisée
+        # 🧠 Réponse IA sécurisée
     try:
-        completion = openai.ChatCompletion.create(
+        response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[SYSTEM_PROMPT] + data["messages"]
+            messages=[SYSTEM_PROMPT] + data["messages"],
+            temperature=0.7
         )
-        if completion.choices and completion.choices[0].message and completion.choices[0].message.content:
-            reply = completion.choices[0].message.content.strip()
-        else:
-            raise ValueError("Réponse vide")
+        reply = response["choices"][0]["message"]["content"].strip()
+
+        # 🔍 Filtrage de réponses inutiles
+        if any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
+            raise ValueError("Réponse détectée comme trop robotique")
+
     except Exception as e:
-        reply = "euh jsp ce que t'as dit mdrr tu peux reformuler ? 😅"
-        print("Erreur GPT:", e)
+        print("⚠️ Erreur GPT :", e)
+        reply = "euh jsp ce que t'as dit mdrr tu peux m'expliquer ? 😅"
 
     # 💸 Si assez de trigger → PayPal
     if not data.get("paypal_sent"):
