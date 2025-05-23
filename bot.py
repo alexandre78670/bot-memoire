@@ -106,10 +106,7 @@ async def handle(event):
     # Logique vente : conditions
     if not data.get("paypal_sent"):
         if sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS)) >= 2:
-            reply += f"
-
-Si tu veux voir un peu plus... j’ai un espace VIP 💖 c’est 30€ pour y entrer
-Voici le lien : {paypal_link}"
+            reply += f"Si tu veux voir un peu plus... j’ai un espace VIP 💖 c’est 30€ pour y entrerVoici le lien : {paypal_link}"
             data["paypal_sent"] = True
 
     data["messages"].append({"role": "assistant", "content": reply})
