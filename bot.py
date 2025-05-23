@@ -70,14 +70,13 @@ async def handle(event):
     if role == "vip":
         return
 
-    # 📸 Teasing image
+    # 📸 Teaser photo
     sent = user_sent_teasers.get(uid, set())
     folder = None
     if any(k in msg for k in FOOT_KEYWORDS):
         folder = "images/teasers/pieds"
     elif any(k in msg for k in NUDE_KEYWORDS):
         folder = "images/teasers/nudes"
-
     if folder:
         try:
             files = [f for f in os.listdir(folder) if f not in sent]
@@ -89,11 +88,11 @@ async def handle(event):
         except Exception as e:
             print("Erreur teaser:", e)
 
-    # 💬 Ajoute message et limite historique
+    # 💬 Historique limité
     data["messages"].append({"role": "user", "content": msg})
     data["messages"] = data["messages"][-10:]
 
-        # ✍️ Simule écriture humaine
+    # ✍️ Simule l'écriture
     try:
         await client(functions.messages.SetTypingRequest(
             peer=event.chat_id,
@@ -102,7 +101,7 @@ async def handle(event):
     except Exception as e:
         print("Erreur typing:", e)
 
-    # 🧠 Réponse IA sécurisée
+    # 🧠 Génère réponse GPT
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
@@ -111,30 +110,27 @@ async def handle(event):
         )
         reply = response["choices"][0]["message"]["content"].strip()
 
-        if any(x in reply.lower() for x in [
-            "je suis désolé", "je suis un modèle", "je suis une intelligence",
-            "je suis désolée", "je suis une IA", "je suis une intelligence artificielle"
-        ]):
-            raise ValueError("Réponse détectée comme trop robotique")
-
+        # 🔍 Filtrage si robot détecté
+        if any(x in reply.lower() for x in ["je suis désolé", "je suis une intelligence", "je suis un modèle", "désolée je suis une ia"]):
+            raise ValueError("Réponse trop robotique")
     except Exception as e:
         print("⚠️ Erreur GPT :", e)
         reply = "euh jsp ce que t'as dit mdrr tu peux m'expliquer ? 😅"
 
-    # 💸 Si assez de trigger → PayPal
+    # 💸 Lien PayPal
     if not data.get("paypal_sent"):
-        triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
-        if triggers >= 2:
+        trigger_count = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
+        if trigger_count >= 2:
             reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
             data["paypal_sent"] = True
 
     data["messages"].append({"role": "assistant", "content": reply})
     ref.set(data)
 
-    await asyncio.sleep(min(len(reply) * 0.05, 6))  # réponse réaliste
+    await asyncio.sleep(min(len(reply) * 0.05, 6))
     await event.respond(reply)
 
-# 🚀 Start bot
+# ✅ Démarre le bot
 with client:
     print("✅ Bot Telegram prêt !")
     client.run_until_disconnected()
