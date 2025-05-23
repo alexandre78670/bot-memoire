@@ -103,21 +103,22 @@ async def handle(event):
     except Exception as e:
         print("Erreur typing:", e)
 
-    # 🤖 Réponse IA avec filtre
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[SYSTEM_PROMPT] + data["messages"],
-            temperature=0.8
-        )
-        reply = response["choices"][0]["message"]["content"].strip()
+    # 🤖 Réponse IA avec fallback
+try:
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[SYSTEM_PROMPT] + data["messages"],
+        temperature=0.8
+    )
+    reply = response["choices"][0]["message"]["content"].strip()
 
-        if any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
-            raise ValueError("Réponse robotique détectée")
+    if any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
+        raise ValueError("Réponse robotique détectée")
 
-    except Exception as e:
-        print("⚠️ Erreur GPT :", e)
-        return  # Ne pas répondre de manière visible
+except Exception as e:
+    print("⚠️ Erreur GPT :", e)
+    # On met une réponse humaine par défaut
+    reply = "mdrr t’es trop chelou toi 😏 t’essaies de me piéger ou quoi ? tu veux vraiment voir + ? 😘"
 
     # 💸 PayPal
     if not data.get("paypal_sent"):
