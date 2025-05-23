@@ -1,3 +1,4 @@
+
 import os
 import base64
 import asyncio
@@ -104,40 +105,40 @@ async def handle(event):
         print("Erreur typing:", e)
 
     # 🤖 Réponse IA avec fallback
-reply = None
-gpt_error = False
+    reply = None
+    gpt_error = False
 
-try:
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[SYSTEM_PROMPT] + data["messages"],
-        temperature=0.8
-    )
-    reply = response["choices"][0]["message"]["content"].strip()
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[SYSTEM_PROMPT] + data["messages"],
+            temperature=0.8
+        )
+        reply = response["choices"][0]["message"]["content"].strip()
 
-    if any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
-        raise ValueError("Réponse robotique détectée")
+        if any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
+            raise ValueError("Réponse robotique détectée")
 
-except Exception as e:
-    print("⚠️ Erreur GPT :", e)
-    gpt_error = True
-    reply = "mdrr t’es chelou 😏 j’ai pas compris ce que tu voulais dire mdr t’as une vraie question ?"
+    except Exception as e:
+        print("⚠️ Erreur GPT :", e)
+        gpt_error = True
+        reply = "mdrr t’es chelou 😏 j’ai pas compris ce que tu voulais dire mdr t’as une vraie question ?"
 
-# 💸 Lien PayPal si assez de triggers
-if not data.get("paypal_sent"):
-    triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
-    if triggers >= 2:
-        reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
-        data["paypal_sent"] = True
+    # 💸 Lien PayPal si assez de triggers
+    if not data.get("paypal_sent"):
+        triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
+        if triggers >= 2:
+            reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
+            data["paypal_sent"] = True
 
-# 🔄 Évite le spam si même réponse fallback a déjà été envoyée
-if not gpt_error or reply not in [m["content"] for m in data["messages"] if m["role"] == "assistant"]:
-    data["messages"].append({"role": "assistant", "content": reply})
-    ref.set(data)
-    await asyncio.sleep(min(len(reply) * 0.05, 6))
-    await event.respond(reply)
-else:
-    print("⏹️ Réponse fallback déjà envoyée, on évite le spam.")
+    # 🔄 Évite le spam si même réponse fallback a déjà été envoyée
+    if not gpt_error or reply not in [m["content"] for m in data["messages"] if m["role"] == "assistant"]:
+        data["messages"].append({"role": "assistant", "content": reply})
+        ref.set(data)
+        await asyncio.sleep(min(len(reply) * 0.05, 6))
+        await event.respond(reply)
+    else:
+        print("⏹️ Réponse fallback déjà envoyée, on évite le spam.")
 
 # 🚀 Lancement
 with client:
