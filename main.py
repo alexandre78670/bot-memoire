@@ -7,20 +7,17 @@ import openai
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# 🔐 Session Telegram
 session_data = os.environ.get("giulia.session")
 if session_data:
     with open("giulia.session", "wb") as f:
         f.write(base64.b64decode(session_data))
 
-# 🔑 API Keys
 api_id = int(os.environ["TELEGRAM_API_ID"])
 api_hash = os.environ["TELEGRAM_API_HASH"]
 openai.api_key = os.environ["OPENAI_API_KEY"]
 paypal_link = os.environ.get("PAYPAL_LINK", "https://www.paypal.me/giuliaVIP")
 vip_channel_url = os.environ.get("TELEGRAM_VIP_CHANNEL_URL", "https://t.me/+vip-link-example")
 
-# 🔥 Firebase
 cred_data = base64.b64decode(os.environ["GOOGLE_CREDENTIALS"])
 with open("firebase_key.json", "wb") as f:
     f.write(cred_data)
@@ -30,7 +27,6 @@ db = firestore.client()
 
 client = TelegramClient("giulia.session", api_id, api_hash)
 
-# 🎭 Prompt IA
 SYSTEM_PROMPT = {
     "role": "system",
     "content": (
@@ -50,94 +46,94 @@ user_sent_teasers = {}
 
 @client.on(events.NewMessage)
 async def handle(event):
-    sender = await event.get_sender()
-    uid = str(sender.id)
-    msg = event.message.message.strip().lower()
-    if not msg:
-        print("⛔ Message vide ignoré")
-        return
-
-    print(f"📨 Message de {uid} : {msg}")
-
-    # Firestore
-    ref = db.collection("conversations").document(uid)
-    data = ref.get().to_dict() or {"messages": [], "role": "user"}
-    role = data.get("role", "user")
-
-    # VIP : envoie le lien, puis stoppe la discussion
-    if role == "vip" and not data.get("link_sent"):
-        await event.respond(f"💋 Merci pour ton soutien ! Voilà le lien de mon canal VIP : {vip_channel_url}")
-        data["link_sent"] = True
-        ref.set(data)
-        print("✅ Lien VIP envoyé")
-        return
-    if role == "vip":
-        print("⏹️ User déjà VIP, pas de réponse")
-        return
-
-    # Ajoute message à l'historique et limite la taille
-    data["messages"].append({"role": "user", "content": msg})
-    data["messages"] = data["messages"][-10:]
-
-    # Simule l'écriture
     try:
-        await client(functions.messages.SetTypingRequest(
-            peer=event.chat_id,
-            action=types.SendMessageTypingAction()
-        ))
-    except Exception as e:
-        print("Erreur typing:", e)
+        sender = await event.get_sender()
+        uid = str(sender.id)
+        msg = event.message.message.strip().lower()
+        if not msg:
+            print("⛔ Message vide ignoré")
+            return
 
-    # Gère le teaser photo (non bloquant)
-    sent = user_sent_teasers.get(uid, set())
-    folder = None
-    if any(k in msg for k in FOOT_KEYWORDS):
-        folder = "images/teasers/pieds"
-    elif any(k in msg for k in NUDE_KEYWORDS):
-        folder = "images/teasers/nudes"
-    if folder:
+        print(f"📨 Message de {uid} : {msg}")
+
+        ref = db.collection("conversations").document(uid)
+        data = ref.get().to_dict() or {"messages": [], "role": "user"}
+        role = data.get("role", "user")
+
+        if role == "vip" and not data.get("link_sent"):
+            await event.respond(f"💋 Merci pour ton soutien ! Voilà le lien de mon canal VIP : {vip_channel_url}")
+            data["link_sent"] = True
+            ref.set(data)
+            print("✅ Lien VIP envoyé")
+            return
+        if role == "vip":
+            print("⏹️ User déjà VIP, pas de réponse")
+            return
+
+        data["messages"].append({"role": "user", "content": msg})
+        data["messages"] = data["messages"][-10:]
+
         try:
-            files = [f for f in os.listdir(folder) if f not in sent]
-            if files:
-                chosen = random.choice(files)
-                await event.respond(file=os.path.join(folder, chosen))
-                sent.add(chosen)
-                user_sent_teasers[uid] = sent
-                print("📸 Teaser envoyé")
+            await client(functions.messages.SetTypingRequest(
+                peer=event.chat_id,
+                action=types.SendMessageTypingAction()
+            ))
         except Exception as e:
-            print("Erreur teaser:", e)
+            print("Erreur typing:", e)
 
-    # Génère la réponse IA (une seule fois)
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[SYSTEM_PROMPT] + data["messages"],
-            temperature=0.8
-        )
-        reply = response["choices"][0]["message"]["content"].strip()
-        # Filtrage réponses robotiques
-        if not reply or any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
-            print("Réponse IA trop robotique, fallback.")
+        sent = user_sent_teasers.get(uid, set())
+        folder = None
+        if any(k in msg for k in FOOT_KEYWORDS):
+            folder = "images/teasers/pieds"
+        elif any(k in msg for k in NUDE_KEYWORDS):
+            folder = "images/teasers/nudes"
+        if folder:
+            try:
+                files = [f for f in os.listdir(folder) if f not in sent]
+                if files:
+                    chosen = random.choice(files)
+                    await event.respond(file=os.path.join(folder, chosen))
+                    sent.add(chosen)
+                    user_sent_teasers[uid] = sent
+                    print("📸 Teaser envoyé")
+            except Exception as e:
+                print("Erreur teaser:", e)
+
+        # LOG : on va print tout ce qui sort de GPT
+        print("== APPEL GPT ==")
+        print("SYSTEM_PROMPT + last 10 messages :")
+        for m in [SYSTEM_PROMPT] + data["messages"]:
+            print(m)
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[SYSTEM_PROMPT] + data["messages"],
+                temperature=0.8
+            )
+            reply = response["choices"][0]["message"]["content"].strip()
+            print("== GPT RESPONSE ==\n", reply)
+            if not reply or any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
+                print("Réponse IA trop robotique, fallback.")
+                reply = "ptdr jsp c’que t’dis mdr tu veux quoi au juste ? 😂"
+        except Exception as e:
+            print("⚠️ GPT error:", e)
             reply = "ptdr jsp c’que t’dis mdr tu veux quoi au juste ? 😂"
+
+        if not data.get("paypal_sent"):
+            triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
+            if triggers >= 2:
+                reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
+                data["paypal_sent"] = True
+
+        data["messages"].append({"role": "assistant", "content": reply})
+        ref.set(data)
+        await asyncio.sleep(min(len(reply) * 0.05, 6))
+        await event.respond(reply)
+        print("✔️ Réponse envoyée : ", reply[:80])
+
     except Exception as e:
-        print("⚠️ GPT error:", e)
-        reply = "ptdr jsp c’que t’dis mdr tu veux quoi au juste ? 😂"
+        print(f"⛔ Erreur fatale dans handle(): {e}")
 
-    # Propose Paypal si conditions
-    if not data.get("paypal_sent"):
-        triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
-        if triggers >= 2:
-            reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
-            data["paypal_sent"] = True
-
-    # Sauve historique et envoie la réponse
-    data["messages"].append({"role": "assistant", "content": reply})
-    ref.set(data)
-    await asyncio.sleep(min(len(reply) * 0.05, 6))
-    await event.respond(reply)
-    print("✔️ Réponse envoyée : ", reply[:80])
-
-# 🚀 Lancement
 with client:
     print("✅ Bot Telegram prêt !")
     client.run_until_disconnected()
