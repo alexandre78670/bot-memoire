@@ -1,4 +1,3 @@
-
 import os
 import base64
 import asyncio
@@ -44,7 +43,6 @@ SYSTEM_PROMPT = {
     )
 }
 
-# 📁 Dictionnaires
 NUDE_KEYWORDS = ["nude", "corps", "photo", "seins", "sexy"]
 FOOT_KEYWORDS = ["pieds", "pied", "foot", "orteils"]
 TRIGGER_KEYWORDS = NUDE_KEYWORDS + FOOT_KEYWORDS + ["lien", "abonnement", "payer", "pay", "vip"]
@@ -52,195 +50,92 @@ user_sent_teasers = {}
 
 @client.on(events.NewMessage)
 async def handle(event):
+    sender = await event.get_sender()
+    uid = str(sender.id)
+    msg = event.message.message.strip().lower()
+    if not msg:
+        print("⛔ Message vide ignoré")
+        return
+
+    print(f"📨 Message de {uid} : {msg}")
+
+    # Firestore
+    ref = db.collection("conversations").document(uid)
+    data = ref.get().to_dict() or {"messages": [], "role": "user"}
+    role = data.get("role", "user")
+
+    # VIP : envoie le lien, puis stoppe la discussion
+    if role == "vip" and not data.get("link_sent"):
+        await event.respond(f"💋 Merci pour ton soutien ! Voilà le lien de mon canal VIP : {vip_channel_url}")
+        data["link_sent"] = True
+        ref.set(data)
+        print("✅ Lien VIP envoyé")
+        return
+    if role == "vip":
+        print("⏹️ User déjà VIP, pas de réponse")
+        return
+
+    # Ajoute message à l'historique et limite la taille
+    data["messages"].append({"role": "user", "content": msg})
+    data["messages"] = data["messages"][-10:]
+
+    # Simule l'écriture
     try:
-        sender = await event.get_sender()
-        uid = str(sender.id)
-        msg = event.message.message.strip().lower()
-        if not msg:
-            print("⛔ Message vide ignoré")
-            return
-
-        print(f"📨 Message de {uid} : {msg}")
-
-        # Firestore
-        ref = db.collection("conversations").document(uid)
-        data = ref.get().to_dict() or {"messages": [], "role": "user"}
-        role = data.get("role", "user")
-
-        # === 1. Gestion VIP ===
-        if role == "vip" and not data.get("link_sent"):
-            await event.respond(f"💋 Merci pour ton soutien ! Voilà le lien de mon canal VIP : {vip_channel_url}")
-            data["link_sent"] = True
-            ref.set(data)
-            print("✅ Lien VIP envoyé")
-            return
-        if role == "vip":
-            print("⏹️ User déjà VIP, pas de réponse")
-            return
-
-        # === 2. Ajoute message à l'historique ===
-        data["messages"].append({"role": "user", "content": msg})
-        data["messages"] = data["messages"][-10:]
-
-        # === 3. Simule "écriture" humaine ===
-        try:
-            await client(functions.messages.SetTypingRequest(
-                peer=event.chat_id,
-                action=types.SendMessageTypingAction()
-            ))
-        except Exception as e:
-            print("Erreur typing:", e)
-
-        # === 4. Gère le teaser photo (non bloquant) ===
-        sent = user_sent_teasers.get(uid, set())
-        folder = None
-        if any(k in msg for k in FOOT_KEYWORDS):
-            folder = "images/teasers/pieds"
-        elif any(k in msg for k in NUDE_KEYWORDS):
-            folder = "images/teasers/nudes"
-        if folder:
-            try:
-                files = [f for f in os.listdir(folder) if f not in sent]
-                if files:
-                    chosen = random.choice(files)
-                    await event.respond(file=os.path.join(folder, chosen))
-                    sent.add(chosen)
-                    user_sent_teasers[uid] = sent
-                    print("📸 Teaser envoyé")
-            except Exception as e:
-                print("Erreur teaser:", e)
-
-        # === 5. Génère une réponse GPT fiable ===
-        reply = None
-        try:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[SYSTEM_PROMPT] + data["messages"],
-                temperature=0.8
-            )
-            reply = response["choices"][0]["message"]["content"].strip()
-            # Si GPT déconne, fallback humain
-            if not reply or any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
-                print("Réponse IA trop robotique, fallback.")
-                reply = None
-        except Exception as e:
-            print("⚠️ GPT error:", e)
-            reply = None
-
-        if not reply or len(reply) < 2:
-            reply = "ptdr jsp c’que t’dis mdr tu veux quoi au juste ? 😂"
-
-        # === 6. Propose Paypal si conditions ===
-        if not data.get("paypal_sent"):
-            triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
-            if triggers >= 2:
-                reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
-                data["paypal_sent"] = True
-
-        # === 7. Sauve historique et envoie réponse ===
-        data["messages"].append({"role": "assistant", "content": reply})
-        ref.set(data)
-        await asyncio.sleep(min(len(reply) * 0.05, 6))
-        await event.respond(reply)
-        print("✔️ Réponse envoyée : ", reply[:80])
-
-    except Exception as e:
-        print(f"⛔ Erreur fatale dans handle(): {e}")
-
-        # Ajoute à l'historique
-        data["messages"].append({"role": "user", "content": msg})
-        data["messages"] = data["messages"][-10:]
-
-        # Indique "en train d'écrire"
-        try:
-            await client(functions.messages.SetTypingRequest(
-                peer=event.chat_id,
-                action=types.SendMessageTypingAction()
-            ))
-        except Exception as e:
-            print("Erreur typing:", e)
-
-        # Réponse IA
-        reply = None
-        try:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[SYSTEM_PROMPT] + data["messages"],
-                temperature=0.8
-            )
-            reply = response["choices"][0]["message"]["content"].strip()
-            if any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
-                print("Réponse IA trop robotique, fallback.")
-                reply = None
-        except Exception as e:
-            print("⚠️ GPT error:", e)
-            reply = None
-
-        # Fallback si IA ne répond pas
-        if not reply or len(reply.strip()) < 2:
-            reply = "t’es chelou mdr j’ai pas compris ce que tu voulais dire 😂"
-
-        # Ajout offre Paypal si triggers
-        if not data.get("paypal_sent"):
-            triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
-            if triggers >= 2:
-                reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
-                data["paypal_sent"] = True
-
-        # Ajout historique
-        data["messages"].append({"role": "assistant", "content": reply})
-        ref.set(data)
-        await asyncio.sleep(min(len(reply) * 0.05, 6))
-        await event.respond(reply)
-        print("✔️ Réponse envoyée : ", reply[:70])
-
-    except Exception as e:
-        print(f"⛔ Erreur fatale dans handle(): {e}")
-
-        # Ajout historique
-        data["messages"].append({"role": "user", "content": msg})
-        data["messages"] = data["messages"][-10:]
-
         await client(functions.messages.SetTypingRequest(
             peer=event.chat_id,
             action=types.SendMessageTypingAction()
         ))
-
-        # GPT
-        reply = None
-        fallback_used = False
-        try:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[SYSTEM_PROMPT] + data["messages"],
-                temperature=0.8
-            )
-            reply = response["choices"][0]["message"]["content"].strip()
-            if any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
-                raise ValueError("Réponse trop robotique")
-        except Exception as e:
-            print("⚠️ GPT error:", e)
-            fallback_used = True
-            reply = "mdrr t’es chelou 😏 j’ai pas compris ce que tu voulais dire mdr t’as une vraie question ?"
-
-        if not data.get("paypal_sent"):
-            triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
-            if triggers >= 2:
-                reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
-                data["paypal_sent"] = True
-
-        # Vérifie duplication
-        if not fallback_used or reply not in [m["content"] for m in data["messages"] if m["role"] == "assistant"]:
-            data["messages"].append({"role": "assistant", "content": reply})
-            ref.set(data)
-            await asyncio.sleep(min(len(reply) * 0.05, 6))
-            await event.respond(reply)
-            print("✔️ Réponse envoyée.")
-        else:
-            print("⏹️ Réponse fallback déjà envoyée précédemment")
-
     except Exception as e:
-        print(f"⛔ Erreur fatale dans handle(): {e}")
+        print("Erreur typing:", e)
+
+    # Gère le teaser photo (non bloquant)
+    sent = user_sent_teasers.get(uid, set())
+    folder = None
+    if any(k in msg for k in FOOT_KEYWORDS):
+        folder = "images/teasers/pieds"
+    elif any(k in msg for k in NUDE_KEYWORDS):
+        folder = "images/teasers/nudes"
+    if folder:
+        try:
+            files = [f for f in os.listdir(folder) if f not in sent]
+            if files:
+                chosen = random.choice(files)
+                await event.respond(file=os.path.join(folder, chosen))
+                sent.add(chosen)
+                user_sent_teasers[uid] = sent
+                print("📸 Teaser envoyé")
+        except Exception as e:
+            print("Erreur teaser:", e)
+
+    # Génère la réponse IA (une seule fois)
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[SYSTEM_PROMPT] + data["messages"],
+            temperature=0.8
+        )
+        reply = response["choices"][0]["message"]["content"].strip()
+        # Filtrage réponses robotiques
+        if not reply or any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
+            print("Réponse IA trop robotique, fallback.")
+            reply = "ptdr jsp c’que t’dis mdr tu veux quoi au juste ? 😂"
+    except Exception as e:
+        print("⚠️ GPT error:", e)
+        reply = "ptdr jsp c’que t’dis mdr tu veux quoi au juste ? 😂"
+
+    # Propose Paypal si conditions
+    if not data.get("paypal_sent"):
+        triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
+        if triggers >= 2:
+            reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
+            data["paypal_sent"] = True
+
+    # Sauve historique et envoie la réponse
+    data["messages"].append({"role": "assistant", "content": reply})
+    ref.set(data)
+    await asyncio.sleep(min(len(reply) * 0.05, 6))
+    await event.respond(reply)
+    print("✔️ Réponse envoyée : ", reply[:80])
 
 # 🚀 Lancement
 with client:
