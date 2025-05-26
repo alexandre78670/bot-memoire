@@ -66,15 +66,18 @@ async def handle(event):
         data = ref.get().to_dict() or {"messages": [], "role": "user"}
         role = data.get("role", "user")
 
+        # VIP: Lien canal
         if role == "vip" and not data.get("link_sent"):
             await event.respond(f"💋 Merci pour ton soutien ! Voilà le lien de mon canal VIP : {vip_channel_url}")
             data["link_sent"] = True
             ref.set(data)
+            print("✅ Lien VIP envoyé")
             return
         if role == "vip":
+            print("⏹️ User déjà VIP, pas de réponse")
             return
 
-        # 📸 Teaser
+        # Image teaser (non bloquant)
         sent = user_sent_teasers.get(uid, set())
         folder = None
         if any(k in msg for k in FOOT_KEYWORDS):
@@ -89,8 +92,59 @@ async def handle(event):
                     await event.respond(file=os.path.join(folder, chosen))
                     sent.add(chosen)
                     user_sent_teasers[uid] = sent
+                    print("📸 Teaser envoyé")
             except Exception as e:
                 print("Erreur teaser:", e)
+
+        # Ajoute à l'historique
+        data["messages"].append({"role": "user", "content": msg})
+        data["messages"] = data["messages"][-10:]
+
+        # Indique "en train d'écrire"
+        try:
+            await client(functions.messages.SetTypingRequest(
+                peer=event.chat_id,
+                action=types.SendMessageTypingAction()
+            ))
+        except Exception as e:
+            print("Erreur typing:", e)
+
+        # Réponse IA
+        reply = None
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[SYSTEM_PROMPT] + data["messages"],
+                temperature=0.8
+            )
+            reply = response["choices"][0]["message"]["content"].strip()
+            if any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
+                print("Réponse IA trop robotique, fallback.")
+                reply = None
+        except Exception as e:
+            print("⚠️ GPT error:", e)
+            reply = None
+
+        # Fallback si IA ne répond pas
+        if not reply or len(reply.strip()) < 2:
+            reply = "t’es chelou mdr j’ai pas compris ce que tu voulais dire 😂"
+
+        # Ajout offre Paypal si triggers
+        if not data.get("paypal_sent"):
+            triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
+            if triggers >= 2:
+                reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
+                data["paypal_sent"] = True
+
+        # Ajout historique
+        data["messages"].append({"role": "assistant", "content": reply})
+        ref.set(data)
+        await asyncio.sleep(min(len(reply) * 0.05, 6))
+        await event.respond(reply)
+        print("✔️ Réponse envoyée : ", reply[:70])
+
+    except Exception as e:
+        print(f"⛔ Erreur fatale dans handle(): {e}")
 
         # Ajout historique
         data["messages"].append({"role": "user", "content": msg})
