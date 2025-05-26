@@ -1,5 +1,4 @@
-python-telegram-bot==20.8
-firebase-admin==6.3.0
+firebase-admin>=6.3.0
 openai>=1.0.0,<2.0.0
 tiktoken
-telethon
+telethon>=1.30.0,<2.0.0
