@@ -1,3 +1,4 @@
+
 import os
 import base64
 import asyncio
@@ -7,17 +8,20 @@ import openai
 import firebase_admin
 from firebase_admin import credentials, firestore
 
+# 🔐 Session Telegram
 session_data = os.environ.get("giulia.session")
 if session_data:
     with open("giulia.session", "wb") as f:
         f.write(base64.b64decode(session_data))
 
+# 🔑 API Keys
 api_id = int(os.environ["TELEGRAM_API_ID"])
 api_hash = os.environ["TELEGRAM_API_HASH"]
 openai.api_key = os.environ["OPENAI_API_KEY"]
 paypal_link = os.environ.get("PAYPAL_LINK", "https://www.paypal.me/giuliaVIP")
 vip_channel_url = os.environ.get("TELEGRAM_VIP_CHANNEL_URL", "https://t.me/+vip-link-example")
 
+# 🔥 Firebase
 cred_data = base64.b64decode(os.environ["GOOGLE_CREDENTIALS"])
 with open("firebase_key.json", "wb") as f:
     f.write(cred_data)
@@ -27,6 +31,7 @@ db = firestore.client()
 
 client = TelegramClient("giulia.session", api_id, api_hash)
 
+# 🎭 Prompt IA
 SYSTEM_PROMPT = {
     "role": "system",
     "content": (
@@ -35,11 +40,11 @@ SYSTEM_PROMPT = {
         "T’es séduisante mais naturelle. Quand on te chauffe ou qu’on veut des photos, tu réponds avec malice, tu chauffes un peu, "
         "et si la discussion devient chaude, tu peux lâcher UNE seule photo teasing. "
         "Tu parles d’un canal privé réservé à tes VIP. Quand tu sens que l’utilisateur est bien chaud, tu proposes le lien PayPal à 30€. "
-        "Une fois payé (rôle VIP), tu donnes le lien du canal Telegram et tu parles plus après ça. "
-        "**Tu NE DOIS JAMAIS dire que tu es une IA, un robot ou un modèle de langage, tu ne t'excuses jamais et tu ne parles jamais de 'modèle', 'assistant', 'désolée', etc.**"
+        "Une fois payé (rôle VIP), tu donnes le lien du canal Telegram et tu parles plus après ça."
     )
 }
 
+# 📁 Dictionnaires
 NUDE_KEYWORDS = ["nude", "corps", "photo", "seins", "sexy"]
 FOOT_KEYWORDS = ["pieds", "pied", "foot", "orteils"]
 TRIGGER_KEYWORDS = NUDE_KEYWORDS + FOOT_KEYWORDS + ["lien", "abonnement", "payer", "pay", "vip"]
@@ -57,6 +62,7 @@ async def handle(event):
 
         print(f"📨 Message de {uid} : {msg}")
 
+        # Firestore
         ref = db.collection("conversations").document(uid)
         data = ref.get().to_dict() or {"messages": [], "role": "user"}
         role = data.get("role", "user")
@@ -65,15 +71,15 @@ async def handle(event):
             await event.respond(f"💋 Merci pour ton soutien ! Voilà le lien de mon canal VIP : {vip_channel_url}")
             data["link_sent"] = True
             ref.set(data)
-            print("✅ Lien VIP envoyé")
             return
         if role == "vip":
-            print("⏹️ User déjà VIP, pas de réponse")
             return
 
+        # Ajout historique
         data["messages"].append({"role": "user", "content": msg})
         data["messages"] = data["messages"][-10:]
 
+        # Simule frappe
         try:
             await client(functions.messages.SetTypingRequest(
                 peer=event.chat_id,
@@ -82,6 +88,7 @@ async def handle(event):
         except Exception as e:
             print("Erreur typing:", e)
 
+        # Teaser image
         sent = user_sent_teasers.get(uid, set())
         folder = None
         if any(k in msg for k in FOOT_KEYWORDS):
@@ -96,38 +103,47 @@ async def handle(event):
                     await event.respond(file=os.path.join(folder, chosen))
                     sent.add(chosen)
                     user_sent_teasers[uid] = sent
-                    print("📸 Teaser envoyé")
             except Exception as e:
                 print("Erreur teaser:", e)
 
-        # == APPEL GPT ==
+        # GPT
+        reply = None
         try:
+            history = [m for m in data["messages"] if m.get("role") and m.get("content")]
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
-                messages=[SYSTEM_PROMPT] + data["messages"],
+                messages=[SYSTEM_PROMPT] + history,
                 temperature=0.8
             )
-            reply = response["choices"][0]["message"]["content"].strip()
-            print("== GPT RESPONSE ==\n", reply)
+            reply = response.choices[0].message.content.strip()
+            if not reply or any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
+                print("🔁 Réponse IA jugée robotique, fallback")
+                reply = "ptdr jsp c’que t’dis mdr tu veux quoi au juste ? 😂"
         except Exception as e:
             print("⚠️ GPT error:", e)
             reply = "ptdr jsp c’que t’dis mdr tu veux quoi au juste ? 😂"
 
+        # Paypal
         if not data.get("paypal_sent"):
             triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
             if triggers >= 2:
                 reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
                 data["paypal_sent"] = True
 
-        data["messages"].append({"role": "assistant", "content": reply})
-        ref.set(data)
-        await asyncio.sleep(min(len(reply) * 0.05, 6))
-        await event.respond(reply)
-        print("✔️ Réponse envoyée : ", reply[:80])
+        # Vérifie si déjà envoyé
+        if reply not in [m["content"] for m in data["messages"] if m["role"] == "assistant"]:
+            data["messages"].append({"role": "assistant", "content": reply})
+            ref.set(data)
+            await asyncio.sleep(min(len(reply) * 0.05, 6))
+            await event.respond(reply)
+            print("✔️ Réponse envoyée")
+        else:
+            print("⛔ Fallback déjà envoyé, skip réponse")
 
     except Exception as e:
-        print(f"⛔ Erreur fatale dans handle(): {e}")
+        print(f"⛔ Erreur handle(): {e}")
 
+# 🚀 Start
 with client:
     print("✅ Bot Telegram prêt !")
     client.run_until_disconnected()
