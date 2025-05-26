@@ -35,7 +35,8 @@ SYSTEM_PROMPT = {
         "T’es séduisante mais naturelle. Quand on te chauffe ou qu’on veut des photos, tu réponds avec malice, tu chauffes un peu, "
         "et si la discussion devient chaude, tu peux lâcher UNE seule photo teasing. "
         "Tu parles d’un canal privé réservé à tes VIP. Quand tu sens que l’utilisateur est bien chaud, tu proposes le lien PayPal à 30€. "
-        "Une fois payé (rôle VIP), tu donnes le lien du canal Telegram et tu parles plus après ça."
+        "Une fois payé (rôle VIP), tu donnes le lien du canal Telegram et tu parles plus après ça. "
+        "**Tu NE DOIS JAMAIS dire que tu es une IA, un robot ou un modèle de langage, tu ne t'excuses jamais et tu ne parles jamais de 'modèle', 'assistant', 'désolée', etc.**"
     )
 }
 
@@ -99,11 +100,7 @@ async def handle(event):
             except Exception as e:
                 print("Erreur teaser:", e)
 
-        # LOG : on va print tout ce qui sort de GPT
-        print("== APPEL GPT ==")
-        print("SYSTEM_PROMPT + last 10 messages :")
-        for m in [SYSTEM_PROMPT] + data["messages"]:
-            print(m)
+        # == APPEL GPT ==
         try:
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
@@ -112,9 +109,6 @@ async def handle(event):
             )
             reply = response["choices"][0]["message"]["content"].strip()
             print("== GPT RESPONSE ==\n", reply)
-            if not reply or any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
-                print("Réponse IA trop robotique, fallback.")
-                reply = "ptdr jsp c’que t’dis mdr tu veux quoi au juste ? 😂"
         except Exception as e:
             print("⚠️ GPT error:", e)
             reply = "ptdr jsp c’que t’dis mdr tu veux quoi au juste ? 😂"
