@@ -1,4 +1,3 @@
-
 import os
 import base64
 import asyncio
@@ -44,7 +43,6 @@ SYSTEM_PROMPT = {
     )
 }
 
-# 📁 Dictionnaires
 NUDE_KEYWORDS = ["nude", "corps", "photo", "seins", "sexy"]
 FOOT_KEYWORDS = ["pieds", "pied", "foot", "orteils"]
 TRIGGER_KEYWORDS = NUDE_KEYWORDS + FOOT_KEYWORDS + ["lien", "abonnement", "payer", "pay", "vip"]
@@ -57,12 +55,8 @@ async def handle(event):
         uid = str(sender.id)
         msg = event.message.message.strip().lower()
         if not msg:
-            print("⛔ Message vide ignoré")
             return
 
-        print(f"📨 Message de {uid} : {msg}")
-
-        # Firestore
         ref = db.collection("conversations").document(uid)
         data = ref.get().to_dict() or {"messages": [], "role": "user"}
         role = data.get("role", "user")
@@ -75,20 +69,18 @@ async def handle(event):
         if role == "vip":
             return
 
-        # Ajout historique
         data["messages"].append({"role": "user", "content": msg})
         data["messages"] = data["messages"][-10:]
 
-        # Simule frappe
         try:
             await client(functions.messages.SetTypingRequest(
                 peer=event.chat_id,
                 action=types.SendMessageTypingAction()
             ))
-        except Exception as e:
-            print("Erreur typing:", e)
+        except:
+            pass
 
-        # Teaser image
+        # Teasing photo
         sent = user_sent_teasers.get(uid, set())
         folder = None
         if any(k in msg for k in FOOT_KEYWORDS):
@@ -106,44 +98,45 @@ async def handle(event):
             except Exception as e:
                 print("Erreur teaser:", e)
 
-        # GPT
+        # GPT response
         reply = None
+        fallback_used = False
         try:
-            history = [m for m in data["messages"] if m.get("role") and m.get("content")]
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
-                messages=[SYSTEM_PROMPT] + history,
+                messages=[SYSTEM_PROMPT] + data["messages"],
                 temperature=0.8
             )
-            reply = response.choices[0].message.content.strip()
+            reply = response["choices"][0]["message"]["content"].strip()
             if not reply or any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
-                print("🔁 Réponse IA jugée robotique, fallback")
-                reply = "ptdr jsp c’que t’dis mdr tu veux quoi au juste ? 😂"
+                reply = None
         except Exception as e:
-            print("⚠️ GPT error:", e)
-            reply = "ptdr jsp c’que t’dis mdr tu veux quoi au juste ? 😂"
+            print("GPT error:", e)
+            fallback_used = True
 
-        # Paypal
+        if not reply:
+            reply = "mdrr t’es chelou 😏 j’ai pas compris ce que tu voulais dire mdr t’as une vraie question ?"
+
         if not data.get("paypal_sent"):
             triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
             if triggers >= 2:
-                reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
+                reply += f"
+
+Tu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?
+💸 {paypal_link}"
                 data["paypal_sent"] = True
 
-        # Vérifie si déjà envoyé
-        if reply not in [m["content"] for m in data["messages"] if m["role"] == "assistant"]:
+        if not fallback_used or reply not in [m["content"] for m in data["messages"] if m["role"] == "assistant"]:
             data["messages"].append({"role": "assistant", "content": reply})
             ref.set(data)
             await asyncio.sleep(min(len(reply) * 0.05, 6))
             await event.respond(reply)
-            print("✔️ Réponse envoyée")
         else:
-            print("⛔ Fallback déjà envoyé, skip réponse")
+            print("⚠️ Réponse fallback déjà envoyée précédemment")
 
     except Exception as e:
-        print(f"⛔ Erreur handle(): {e}")
+        print("❌ Erreur dans handle:", e)
 
-# 🚀 Start
 with client:
     print("✅ Bot Telegram prêt !")
     client.run_until_disconnected()
