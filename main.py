@@ -1,4 +1,3 @@
-
 import os
 import base64
 import asyncio
@@ -57,17 +56,15 @@ async def handle(event):
         uid = str(sender.id)
         msg = event.message.message.strip().lower()
         if not msg:
-            print("⛔ Message vide ignoré")
             return
 
-        print(f"📨 Message de {uid} : {msg}")
+        print(f"📨 Message reçu de {uid} : {msg}")
 
-        # Firestore
         ref = db.collection("conversations").document(uid)
         data = ref.get().to_dict() or {"messages": [], "role": "user"}
         role = data.get("role", "user")
 
-        # 💎 VIP : réponse et stop
+        # 💎 VIP : lien et silence
         if role == "vip" and not data.get("link_sent"):
             await event.respond(f"💋 Merci pour ton soutien ! Voilà le lien de mon canal VIP : {vip_channel_url}")
             data["link_sent"] = True
@@ -76,11 +73,11 @@ async def handle(event):
         if role == "vip":
             return
 
-        # 🧠 Ajout au contexte
+        # 📩 Historique propre
         data["messages"].append({"role": "user", "content": msg})
         data["messages"] = data["messages"][-10:]
 
-        # ✍️ Simule frappe
+        # ✍️ Simulation frappe
         try:
             await client(functions.messages.SetTypingRequest(
                 peer=event.chat_id,
@@ -89,7 +86,7 @@ async def handle(event):
         except:
             pass
 
-        # 📸 Image teaser (non bloquant)
+        # 📸 Image teaser
         sent = user_sent_teasers.get(uid, set())
         folder = None
         if any(k in msg for k in FOOT_KEYWORDS):
@@ -107,42 +104,45 @@ async def handle(event):
             except Exception as e:
                 print("Erreur teaser:", e)
 
-        # 🧠 GPT
+        # 🧠 GPT avec filtrage
         filtered_history = [m for m in data["messages"] if "t’es chelou" not in m["content"].lower()]
         try:
+            print("📤 Envoi à GPT :", [m["content"] for m in filtered_history])
             response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o",
                 messages=[SYSTEM_PROMPT] + filtered_history,
                 temperature=0.8
             )
             reply = response["choices"][0]["message"]["content"].strip()
 
             if any(x in reply.lower() for x in ["je suis désolée", "je suis un modèle", "je suis une intelligence"]):
-                raise ValueError("Réponse robotique")
+                raise ValueError("Réponse trop robotique")
+
         except Exception as e:
-            print("⚠️ GPT error:", e)
+            print("⚠️ GPT error :", str(e))
             reply = "t’es chelou mdr j’ai pas compris ce que tu voulais dire 😂"
 
-            # si déjà dit ce message en dernier → pas de doublon
+            # Ne spam pas la même réponse
             if data["messages"] and data["messages"][-1]["role"] == "assistant" and data["messages"][-1]["content"] == reply:
-                print("⏹️ Fallback déjà envoyé, pas de doublon.")
+                print("⏹️ Fallback déjà envoyé précédemment, on ne renvoie rien.")
                 return
 
-        # 💸 Envoi Paypal si condition
+        # 💸 Propose lien PayPal
         if not data.get("paypal_sent"):
             triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
             if triggers >= 2:
                 reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
                 data["paypal_sent"] = True
 
-        # 💾 Sauvegarde et envoi
+        # 💾 Envoi réponse
         data["messages"].append({"role": "assistant", "content": reply})
         ref.set(data)
         await asyncio.sleep(min(len(reply) * 0.05, 6))
         await event.respond(reply)
+        print("✔️ Réponse envoyée à", uid)
 
     except Exception as e:
-        print(f"⛔ Erreur dans handle(): {e}")
+        print("⛔ Erreur dans handle():", str(e))
 
 # 🚀 Lancement
 with client:
