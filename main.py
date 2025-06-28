@@ -116,7 +116,7 @@ async def handle(event):
         if not data.get("paypal_sent"):
             triggers = sum(1 for m in data["messages"] if m["role"] == "user" and any(k in m["content"] for k in TRIGGER_KEYWORDS))
             if triggers >= 2:
-                reply += reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
+                reply += f"\n\nTu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C’est 30€ pour y entrer. Tu veux le lien ?\n💸 {paypal_link}"
                 data["paypal_sent"] = True
 
         data["messages"].append({"role": "assistant", "content": reply})
