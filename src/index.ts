@@ -1,5 +1,5 @@
 import { Bot } from "grammy";
-import { Configuration, OpenAIApi } from "openai";
+import OpenAI from 'openai';
 import { initializeApp, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import * as dotenv from "dotenv";
