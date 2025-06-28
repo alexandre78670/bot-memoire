@@ -1,4 +1,5 @@
-import { Bot } from "grammy";
+import { Bot, webhookCallback } from "grammy";
+import express from "express";
 import OpenAI from "openai";
 import { initializeApp, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
@@ -103,4 +104,18 @@ Tu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C�
   await ref.set({ ...data, messages: [...filtered, { role: "assistant", content: reply }] }, { merge: true });
 });
 
-bot.start();
+// ✅ Webhook server (Render-compatible)
+const app = express();
+app.use(express.json());
+app.use("/webhook", webhookCallback(bot, "express"));
+
+const port = process.env.PORT || 3000;
+app.listen(port, async () => {
+  console.log(`🚀 Webhook server running on port ${port}`);
+  try {
+    await bot.api.setWebhook(`${process.env.RENDER_EXTERNAL_URL}/webhook`);
+    console.log("✅ Webhook set successfully");
+  } catch (e) {
+    console.error("Failed to set webhook:", e);
+  }
+});
