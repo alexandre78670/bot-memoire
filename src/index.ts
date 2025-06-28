@@ -1,9 +1,8 @@
 import { Bot } from "grammy";
-import OpenAI from 'openai';
+import OpenAI from "openai";
 import { initializeApp, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import * as dotenv from "dotenv";
-import * as fs from "fs";
 
 dotenv.config();
 
@@ -15,12 +14,12 @@ initializeApp({ credential: cert(firebaseCreds) });
 const db = getFirestore();
 
 // 🤖 Telegram
-const bot = new Bot(process.env.BOT_TOKEN || "");
+const bot = new Bot(process.env.TELEGRAM_TOKEN || "");
 
-// 🤖 OpenAI
-const openai = new OpenAIApi(
-  new Configuration({ apiKey: process.env.OPENAI_API_KEY })
-);
+// 🤖 OpenAI (v4)
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
+});
 
 // 💬 System prompt
 const SYSTEM_PROMPT = {
@@ -46,38 +45,50 @@ bot.on("message:text", async (ctx) => {
 
   const ref = db.collection("conversations").doc(uid);
   const snapshot = await ref.get();
-  const data = snapshot.exists ? snapshot.data() : { messages: [], role: "user" };
+  let data = snapshot.exists ? snapshot.data() : undefined;
 
+  if (!data) {
+    data = { messages: [], role: "user" };
+  }
+
+  // 💎 Si déjà VIP
   if (data.role === "vip") {
     if (!data.link_sent) {
-      await ctx.reply(`💋 Merci pour ton soutien ! Voici le lien de mon canal VIP : ${process.env.VIP_CHANNEL_LINK}`);
+      await ctx.reply(`💋 Merci pour ton soutien ! Voici le lien de mon canal VIP : ${process.env.TELEGRAM_VIP_CHANNEL_URL}`);
       await ref.set({ ...data, link_sent: true }, { merge: true });
     }
     return;
   }
 
+  // 🧠 Ajout message utilisateur
   const newHistory = [...(data.messages || []), { role: "user", content: msg }];
   const filtered = newHistory.filter(m => !m.content?.includes("t’es chelou")).slice(-10);
 
   let reply = "";
   try {
-    const response = await openai.createChatCompletion({
+    const chat = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [SYSTEM_PROMPT, ...filtered],
       temperature: 0.8,
     });
-    reply = response.data.choices[0].message?.content?.trim() || "";
-  } catch (e) {
-    console.error("GPT ERROR:", e);
+    reply = chat.choices[0]?.message?.content?.trim() || "";
+  } catch (err) {
+    console.error("GPT ERROR:", err);
   }
 
+  // 🤖 Fallback
   if (!reply || reply.length < 2 || reply.toLowerCase().includes("je suis un modèle")) {
     reply = "t’es chelou mdr j’ai pas compris ce que tu voulais dire 😂";
-    if (data.messages?.[data.messages.length - 1]?.content === reply) return;
+    const lastBotReply = data.messages?.[data.messages.length - 1]?.content;
+    if (lastBotReply === reply) return;
   }
 
+  // 💸 Envoi PayPal si conditions
   if (!data.paypal_sent) {
-    const interest = newHistory.filter(m => m.role === "user" && TRIGGERS.some(k => m.content.includes(k))).length;
+    const interest = newHistory.filter(m =>
+      m.role === "user" && TRIGGERS.some(k => m.content.includes(k))
+    ).length;
+
     if (interest >= 2) {
       reply += `
 
@@ -87,6 +98,7 @@ Tu me plais toi 😏 Si tu veux voir un peu plus… j’ai un espace VIP 💖 C�
     }
   }
 
+  // 📤 Envoi & mémoire
   await ctx.reply(reply);
   await ref.set({ ...data, messages: [...filtered, { role: "assistant", content: reply }] }, { merge: true });
 });
