@@ -112,10 +112,13 @@ app.use("/webhook", webhookCallback(bot, "express"));
 const port = process.env.PORT || 3000;
 app.listen(port, async () => {
   console.log(`🚀 Webhook server running on port ${port}`);
+
+  const webhookURL = `${process.env.RENDER_EXTERNAL_URL}/webhook`;
+
   try {
-    await bot.api.setWebhook(`${process.env.RENDER_EXTERNAL_URL}/webhook`);
-    console.log("✅ Webhook set successfully");
+    await bot.api.setWebhook(webhookURL);
+    console.log(`✅ Webhook set to: ${webhookURL}`);
   } catch (e) {
-    console.error("Failed to set webhook:", e);
+    console.error("❌ Failed to set webhook:", e);
   }
 });
